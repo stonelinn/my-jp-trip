@@ -179,13 +179,18 @@
                     <!-- Add Expense Form -->
                     <form @submit.prevent="addExpense" class="bg-white p-4 border border-muji-border mb-6">
                         <div class="grid grid-cols-3 gap-3 mb-3">
-                            <div class="col-span-2">
-                                <label class="block text-[10px] text-muji-gray mb-1 uppercase">Amount (JPY)</label>
-                                <input type="number" v-model="newExpense.amount" placeholder="0" class="w-full bg-muji-base border-b border-muji-gray/30 p-2 text-muji-text outline-none font-mono text-lg focus:border-muji-accent">
+                            <div class="col-span-2 flex items-center bg-muji-base border-b border-muji-gray/30">
+                                <!-- 幣別選擇器 -->
+                                <select v-model="newExpense.currency" class="bg-transparent p-2 text-xs text-muji-text outline-none font-bold w-16">
+                                    <option :value="appSettings.currency">{{ appSettings.currency }}</option>
+                                    <option value="TWD">TWD</option>
+                                    <option value="USD">USD</option>
+                                </select>
+                                <input type="number" v-model="newExpense.amount" placeholder="0" class="flex-1 bg-transparent p-2 text-muji-text outline-none font-mono text-lg text-right focus:border-muji-accent">
                             </div>
                             <div>
-                                <label class="block text-[10px] text-muji-gray mb-1 uppercase">Method</label>
-                                <select v-model="newExpense.method" class="w-full bg-muji-base border-b border-muji-gray/30 p-2.5 text-xs text-muji-text outline-none">
+                                <!-- 支付方式 (無標籤設計) -->
+                                <select v-model="newExpense.method" class="w-full h-full bg-muji-base border-b border-muji-gray/30 p-2.5 text-xs text-muji-text outline-none">
                                     <option value="Cash">現金</option>
                                     <option value="Card">信用卡</option>
                                     <option value="Suica">交通卡</option>
@@ -221,7 +226,10 @@
                                 </div>
                             </div>
                             <div class="text-right">
-                                <p class="font-bold text-muji-text text-sm font-mono">¥{{ formatMoney(exp.amount) }}</p>
+                                <p class="font-bold text-muji-text text-sm font-mono">
+                                    <span v-if="exp.currency !== appSettings.currency" class="text-[10px] text-muji-gray mr-1">{{ exp.currency }}</span>
+                                    {{ formatMoney(exp.amount) }}
+                                </p>
                                 <button @click="deleteExpense(exp.id)" class="text-muji-gray text-[10px] mt-1 hover:text-muji-accent underline">Delete</button>
                             </div>
                         </div>
@@ -305,6 +313,9 @@
                 const newExpense = ref({ amount: '', description: '', currency: 'JPY', method: 'Cash', category: '食' });
                 const newNote = ref({ title: '', content: '', tag: 'Info' });
                 
+                // Fixed Rates for estimate
+                const USD_TO_TWD = 32.5;
+
                 // LocalStorage Helper
                 const saveData = () => {
                     localStorage.setItem('japan_data_v1', JSON.stringify({
@@ -319,6 +330,7 @@
                     
                     if (settingsSaved) {
                         appSettings.value = JSON.parse(settingsSaved);
+                        newExpense.value.currency = appSettings.value.currency;
                     }
                     if (dataSaved) {
                         const parsed = JSON.parse(dataSaved);
@@ -330,7 +342,6 @@
                 const resetApp = () => {
                     if(confirm('重置 App 設定以開啟新旅程？(注意：如果選擇清除舊資料將無法復原)')) {
                         localStorage.removeItem('japan_settings_v1');
-                        // We don't remove data here automatically, user decides in setup
                         location.reload();
                     }
                 };
@@ -365,6 +376,7 @@
                         };
                         localStorage.setItem('japan_settings_v1', JSON.stringify(settings));
                         appSettings.value = settings;
+                        newExpense.value.currency = settings.currency;
                         
                     } catch(e) { setupError.value = e.message; } 
                     finally { setupLoading.value = false; }
@@ -377,12 +389,14 @@
                         id: Date.now(),
                         amount: newExpense.value.amount,
                         description: newExpense.value.description,
-                        currency: 'JPY',
+                        currency: newExpense.value.currency,
                         method: newExpense.value.method,
                         category: newExpense.value.category,
                         date: new Date().toLocaleDateString('zh-TW', {month:'numeric', day:'numeric'})
                     });
-                    newExpense.value = { amount: '', description: '', currency: 'JPY', method: 'Cash', category: '食' };
+                    // Reset but keep currency
+                    const currentCur = newExpense.value.currency;
+                    newExpense.value = { amount: '', description: '', currency: currentCur, method: 'Cash', category: '食' };
                     saveData();
                 };
                 const deleteExpense = (id) => {
@@ -417,20 +431,43 @@
                      saveData();
                 };
 
+                // Logic: Convert any currency amount to JPY (Base) for totals
+                const toBaseCurrency = (exp) => {
+                    const amt = parseFloat(exp.amount);
+                    if (exp.currency === appSettings.value.currency) return amt; // JPY
+                    if (exp.currency === 'TWD') {
+                        // TWD to JPY = Amount / JPY_Rate (0.22)
+                        return amt / (appSettings.value.rate || 0.22);
+                    }
+                    if (exp.currency === 'USD') {
+                        // USD to JPY = USD -> TWD -> JPY
+                        // 1 USD = 32.5 TWD
+                        // 1 TWD = 1/0.22 JPY
+                        // 1 USD = 32.5 / 0.22 JPY
+                        return (amt * USD_TO_TWD) / (appSettings.value.rate || 0.22);
+                    }
+                    return amt;
+                };
+
                 // Computed
-                const totalJPY = computed(() => expenses.value.reduce((s, e) => s + parseFloat(e.amount), 0));
+                const totalJPY = computed(() => expenses.value.reduce((s, e) => s + toBaseCurrency(e), 0));
+                
                 const totalTWD = computed(() => Math.round(totalJPY.value * (appSettings.value?.rate || 0.22)));
-                const cashSpent = computed(() => expenses.value.filter(e => e.method === 'Cash').reduce((s, e) => s + parseFloat(e.amount), 0));
-                const cardSpent = computed(() => expenses.value.filter(e => e.method === 'Card').reduce((s, e) => s + parseFloat(e.amount), 0));
-                const suicaSpent = computed(() => expenses.value.filter(e => e.method === 'Suica').reduce((s, e) => s + parseFloat(e.amount), 0));
+                
+                const cashSpent = computed(() => expenses.value.filter(e => e.method === 'Cash').reduce((s, e) => s + toBaseCurrency(e), 0));
+                const cardSpent = computed(() => expenses.value.filter(e => e.method === 'Card').reduce((s, e) => s + toBaseCurrency(e), 0));
+                const suicaSpent = computed(() => expenses.value.filter(e => e.method === 'Suica').reduce((s, e) => s + toBaseCurrency(e), 0));
                 
                 const chartData = computed(() => {
-                    const data = expenses.value.reduce((acc, curr) => { acc[curr.category] = (acc[curr.category] || 0) + parseFloat(curr.amount); return acc; }, {});
+                    const data = expenses.value.reduce((acc, curr) => { 
+                        acc[curr.category] = (acc[curr.category] || 0) + toBaseCurrency(curr); 
+                        return acc; 
+                    }, {});
                     return Object.entries(data).sort(([,a], [,b]) => b - a).map(([name, value]) => ({ name, value, percent: totalJPY.value ? (value / totalJPY.value) * 100 : 0 }));
                 });
 
                 // Helpers
-                const formatMoney = (v) => new Intl.NumberFormat('en-US').format(v);
+                const formatMoney = (v) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(v);
 
                 onMounted(() => {
                     checkSetup();
