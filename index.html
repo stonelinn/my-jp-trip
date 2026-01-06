@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Japan Trip</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['"Helvetica Neue"', 'Arial', '"Hiragino Kaku Gothic ProN"', '"Hiragino Sans"', 'Meiryo', 'sans-serif'] },
+                    colors: {
+                        // Muji Color Palette
+                        muji: {
+                            base: '#F4F4F0', // 米白底色
+                            text: '#333333', // 深灰字
+                            gray: '#7F7F7F', // 中灰
+                            accent: '#7F0019', // 無印紅
+                            border: '#E0E0E0',
+                            card: '#FFFFFF'
+                        }
+                    },
+                    animation: { 'fade-in': 'fadeIn 0.5s ease-out', 'slide-up': 'slideUp 0.5s ease-out' },
+                    keyframes: {
+                        fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+                        slideUp: { '0%': { transform: 'translateY(10px)', opacity: '0' }, '100%': { transform: 'translateY(0)', opacity: '1' } }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+        .active-scale:active { transform: scale(0.98); opacity: 0.8; }
+        #map { height: 250px; width: 100%; border: 1px solid #E0E0E0; z-index: 0; }
+        .checkbox-wrapper input:checked + div { background-color: #7F0019; border-color: #7F0019; }
+        .checkbox-wrapper input:checked + div svg { display: block; }
+        body { background-color: #F4F4F0; }
+    </style>
+</head>
+<body class="text-muji-text font-sans antialiased selection:bg-gray-200">
+
+    <div id="app" class="max-w-md mx-auto min-h-screen bg-muji-base shadow-xl relative flex flex-col pb-safe border-x border-muji-border">
+
+        <!-- ================= 初始設定精靈 ================= -->
+        <div v-if="!appSettings" class="fixed inset-0 z-50 bg-muji-base flex flex-col items-center justify-center p-8 animate-fade-in">
+            <div class="w-full max-w-sm bg-white border border-muji-border p-8 shadow-sm">
+                <div class="text-center mb-8">
+                    <div class="w-16 h-16 bg-muji-accent text-white flex items-center justify-center mx-auto mb-4 text-3xl font-bold">JP</div>
+                    <h1 class="text-2xl font-bold tracking-widest text-muji-text">JAPAN TRIP</h1>
+                    <p class="text-muji-gray text-xs mt-2 tracking-wider">シンプルに記録する</p>
+                </div>
+
+                <div class="space-y-6">
+                    <div>
+                        <label class="block text-xs text-muji-gray mb-1 uppercase tracking-wider">目的地</label>
+                        <input v-model="setupForm.destination" type="text" placeholder="例：Tokyo" class="w-full bg-muji-base border-b border-muji-gray/30 p-2 text-muji-text outline-none rounded-none focus:border-muji-accent transition-colors">
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-muji-gray mb-1 uppercase tracking-wider">出發日</label>
+                            <input v-model="setupForm.startDate" type="date" class="w-full bg-muji-base border-b border-muji-gray/30 p-2 text-muji-text outline-none rounded-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-muji-gray mb-1 uppercase tracking-wider">回程日</label>
+                            <input v-model="setupForm.endDate" type="date" class="w-full bg-muji-base border-b border-muji-gray/30 p-2 text-muji-text outline-none rounded-none">
+                        </div>
+                    </div>
+
+                    <label class="flex items-center gap-2 text-xs text-muji-gray mt-4 cursor-pointer">
+                        <input type="checkbox" v-model="setupForm.clearData" class="accent-muji-accent w-4 h-4">
+                        重置舊資料 (開啟新旅程)
+                    </label>
+
+                    <button @click="runSetup" :disabled="setupLoading" class="w-full bg-muji-text text-white py-3 mt-6 hover:bg-muji-accent transition-colors disabled:opacity-50">
+                        <span v-if="setupLoading">設定中...</span>
+                        <span v-else>開始旅程</span>
+                    </button>
+                    <p v-if="setupError" class="text-muji-accent text-xs text-center mt-2">{{ setupError }}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= 主應用程式 ================= -->
+        <template v-else>
+            <!-- 頂部標題區 -->
+            <header class="bg-white border-b border-muji-border pt-12 pb-4 px-6 sticky top-0 z-20">
+                <div class="flex justify-between items-end">
+                    <div>
+                        <h1 class="text-xl font-bold tracking-widest text-muji-text flex items-center gap-2 uppercase">
+                            {{ appSettings.destination }}
+                            <span class="w-2 h-2 bg-green-600 rounded-full" title="已儲存至手機"></span>
+                        </h1>
+                        <p class="text-muji-gray text-[10px] mt-1 font-mono tracking-wide">
+                            {{ appSettings.currency }} 1 ≈ TWD {{ appSettings.rate }}
+                        </p>
+                    </div>
+                    <div class="flex flex-col items-end" @click="resetApp">
+                        <span class="text-xs font-bold text-muji-text border border-muji-text px-2 py-0.5">Stone</span>
+                        <span class="text-[10px] text-muji-gray mt-0.5">個人版</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- 主要內容區 -->
+            <main class="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 no-scrollbar">
+                
+                <!-- 分頁 0: 旅遊筆記 (Notes) -->
+                <div v-if="activeTab === 'notes'" class="animate-fade-in">
+                    <div class="flex justify-between items-center mb-6 border-b border-muji-border pb-2">
+                        <h2 class="text-sm font-bold text-muji-gray tracking-widest uppercase">NOTES</h2>
+                        <div class="flex items-center gap-2">
+                            <button v-if="notes.length === 0" @click="addDefaultNotes" class="text-xs text-muji-text underline active-scale">載入日本攻略</button>
+                            <button @click="showAddNoteModal = true" class="text-muji-text hover:text-muji-accent transition-colors">
+                                <i class="ph-light ph-plus text-2xl"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grid gap-4">
+                        <div v-if="notes.length === 0" class="text-center py-16 text-muji-gray/50">
+                             <i class="ph-light ph-pencil-slash text-4xl mb-2"></i>
+                             <p class="text-xs font-serif">無筆記</p>
+                        </div>
+
+                        <div v-for="note in notes" :key="note.id" class="bg-white p-5 border border-muji-border shadow-sm relative group transition-all">
+                            <div class="flex justify-between items-start mb-2">
+                                <h3 class="font-bold text-muji-text text-sm tracking-wide">{{ note.title }}</h3>
+                                <button @click="deleteNote(note.id)" class="text-muji-gray hover:text-muji-accent"><i class="ph-light ph-x"></i></button>
+                            </div>
+                            <p class="text-xs text-muji-text/80 whitespace-pre-line leading-relaxed font-serif">{{ note.content }}</p>
+                            <div class="mt-3 pt-2 border-t border-dashed border-muji-border">
+                                <span class="text-[10px] text-muji-gray">{{ note.tag }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 分頁 2: 記帳本 (預設首頁) -->
+                <div v-if="activeTab === 'expense'" class="animate-fade-in">
+                    <!-- Dashboard Card -->
+                    <div class="bg-white border border-muji-border p-6 mb-6 shadow-sm">
+                        <div class="flex justify-between items-end mb-4">
+                            <div>
+                                <p class="text-muji-gray text-[10px] uppercase tracking-widest mb-1">TOTAL SPENT</p>
+                                <h2 class="text-2xl font-bold text-muji-text font-mono">¥{{ formatMoney(totalJPY) }}</h2>
+                                <p class="text-xs text-muji-gray mt-1">≈ NT$ {{ formatMoney(totalTWD) }}</p>
+                            </div>
+                        </div>
+                        <!-- Payment Method Breakdown -->
+                        <div class="grid grid-cols-3 gap-2 text-center pt-4 border-t border-muji-border">
+                            <div>
+                                <p class="text-[10px] text-muji-gray">CASH</p>
+                                <p class="text-sm font-bold text-muji-text">¥{{ formatMoney(cashSpent) }}</p>
+                            </div>
+                            <div class="border-x border-muji-border">
+                                <p class="text-[10px] text-muji-gray">CARD</p>
+                                <p class="text-sm font-bold text-muji-text">¥{{ formatMoney(cardSpent) }}</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-muji-gray">SUICA/IC</p>
+                                <p class="text-sm font-bold text-muji-text">¥{{ formatMoney(suicaSpent) }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Add Expense Form -->
+                    <form @submit.prevent="addExpense" class="bg-white p-4 border border-muji-border mb-6">
+                        <div class="grid grid-cols-3 gap-3 mb-3">
+                            <div class="col-span-2">
+                                <label class="block text-[10px] text-muji-gray mb-1 uppercase">Amount (JPY)</label>
+                                <input type="number" v-model="newExpense.amount" placeholder="0" class="w-full bg-muji-base border-b border-muji-gray/30 p-2 text-muji-text outline-none font-mono text-lg focus:border-muji-accent">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-muji-gray mb-1 uppercase">Method</label>
+                                <select v-model="newExpense.method" class="w-full bg-muji-base border-b border-muji-gray/30 p-2.5 text-xs text-muji-text outline-none">
+                                    <option value="Cash">現金</option>
+                                    <option value="Card">信用卡</option>
+                                    <option value="Suica">交通卡</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3 mb-3">
+                            <div class="col-span-2">
+                                <input type="text" v-model="newExpense.description" placeholder="Item Name" class="w-full bg-muji-base border-b border-muji-gray/30 p-2 text-sm text-muji-text outline-none focus:border-muji-accent">
+                            </div>
+                            <div>
+                                <select v-model="newExpense.category" class="w-full bg-muji-base border-b border-muji-gray/30 p-2 text-xs text-muji-text outline-none">
+                                    <option>食</option><option>行</option><option>住</option><option>買</option><option>娛</option><option>其他</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full bg-muji-text text-white py-3 text-xs uppercase tracking-widest hover:bg-muji-accent transition-colors">Record</button>
+                    </form>
+
+                    <!-- List -->
+                    <div class="space-y-0 border-t border-muji-border">
+                        <div v-for="exp in expenses" :key="exp.id" class="flex justify-between items-center bg-white p-4 border-b border-muji-border hover:bg-gray-50 transition-colors">
+                            <div class="flex items-center gap-3">
+                                <div class="w-8 h-8 flex items-center justify-center border border-muji-gray/20 text-muji-text bg-muji-base text-xs font-serif">
+                                    {{ exp.category }}
+                                </div>
+                                <div>
+                                    <h4 class="font-bold text-muji-text text-sm">{{ exp.description }}</h4>
+                                    <div class="flex gap-2 mt-0.5">
+                                        <span class="text-[10px] text-muji-gray bg-muji-base px-1">{{ exp.method }}</span>
+                                        <span class="text-[10px] text-muji-gray">{{ exp.date }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <p class="font-bold text-muji-text text-sm font-mono">¥{{ formatMoney(exp.amount) }}</p>
+                                <button @click="deleteExpense(exp.id)" class="text-muji-gray text-[10px] mt-1 hover:text-muji-accent underline">Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 分頁 3: 統計圖表 -->
+                <div v-if="activeTab === 'chart'" class="animate-fade-in flex flex-col items-center pt-6">
+                    <div v-if="expenses.length === 0" class="text-center py-20 text-muji-gray"><p>No Data</p></div>
+                    <div v-else class="w-full px-2">
+                        <div class="mb-8">
+                            <h3 class="text-xs text-muji-gray uppercase mb-4 text-center tracking-widest">Category Breakdown</h3>
+                            <div class="space-y-3">
+                                <div v-for="item in chartData" :key="item.name" class="flex items-center gap-3 text-xs">
+                                    <div class="w-8 text-right font-bold text-muji-text">{{ item.name }}</div>
+                                    <div class="flex-1 bg-muji-base h-2 overflow-hidden">
+                                        <div class="h-full bg-muji-text" :style="{ width: item.percent + '%' }"></div>
+                                    </div>
+                                    <div class="w-12 text-right text-muji-gray">{{ item.percent.toFixed(0) }}%</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="text-center mt-10">
+                            <p class="text-xs text-muji-gray font-serif italic">"Travel is about the journey, not just the destination."</p>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <!-- 底部導航 -->
+            <nav class="fixed bottom-0 w-full max-w-md bg-white border-t border-muji-border pb-safe z-30">
+                <div class="grid grid-cols-3 h-16">
+                     <button @click="activeTab = 'notes'" class="flex flex-col items-center justify-center gap-1 transition-colors" :class="activeTab === 'notes' ? 'text-muji-accent' : 'text-muji-gray hover:text-muji-text'"><i class="text-xl" :class="activeTab === 'notes' ? 'ph-fill ph-notebook' : 'ph-light ph-notebook'"></i><span class="text-[9px] uppercase tracking-widest">Note</span></button>
+                    <button @click="activeTab = 'expense'" class="flex flex-col items-center justify-center gap-1 transition-colors border-x border-muji-border" :class="activeTab === 'expense' ? 'text-muji-accent' : 'text-muji-gray hover:text-muji-text'"><i class="text-xl" :class="activeTab === 'expense' ? 'ph-fill ph-wallet' : 'ph-light ph-wallet'"></i><span class="text-[9px] uppercase tracking-widest">Money</span></button>
+                    <button @click="activeTab = 'chart'" class="flex flex-col items-center justify-center gap-1 transition-colors" :class="activeTab === 'chart' ? 'text-muji-accent' : 'text-muji-gray hover:text-muji-text'"><i class="text-xl" :class="activeTab === 'chart' ? 'ph-fill ph-chart-pie-slice' : 'ph-light ph-chart-pie-slice'"></i><span class="text-[9px] uppercase tracking-widest">Stat</span></button>
+                </div>
+            </nav>
+
+            <div v-if="showAddNoteModal" class="fixed inset-0 bg-white/90 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fade-in">
+                <div class="bg-white w-full max-w-sm border border-muji-text shadow-lg p-6 relative">
+                    <h3 class="text-sm font-bold mb-6 text-center uppercase tracking-widest border-b border-muji-border pb-2">New Note</h3>
+                    <input v-model="newNote.title" type="text" placeholder="Title" class="w-full bg-muji-base border border-muji-border p-3 mb-3 outline-none focus:border-muji-text text-sm">
+                    <textarea v-model="newNote.content" placeholder="Content..." rows="5" class="w-full bg-muji-base border border-muji-border p-3 mb-3 outline-none focus:border-muji-text text-sm"></textarea>
+                    <div class="mb-6 flex gap-2">
+                         <button v-for="tag in ['Info', 'Food', 'Shop', 'Spot']" :key="tag" @click="newNote.tag = tag" 
+                            class="px-3 py-1 border text-[10px] uppercase transition-colors"
+                            :class="newNote.tag === tag ? 'bg-muji-text text-white border-muji-text' : 'bg-white text-muji-gray border-muji-border'">
+                            {{ tag }}
+                         </button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <button @click="showAddNoteModal = false" class="py-3 bg-white border border-muji-gray text-muji-gray text-xs uppercase hover:bg-gray-50">Cancel</button>
+                        <button @click="addNote" class="py-3 bg-muji-text text-white text-xs uppercase hover:bg-muji-accent">Save</button>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <script type="module">
+        import { createApp, ref, computed, onMounted, nextTick, watch } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js';
+
+        createApp({
+            setup() {
+                const online = ref(true); // Always true for offline version UI
+                const appSettings = ref(null);
+                
+                // Setup
+                const setupForm = ref({ destination: 'Tokyo', startDate: '', endDate: '', clearData: false });
+                const setupLoading = ref(false);
+                const setupError = ref('');
+
+                // App State
+                const activeTab = ref('expense');
+                const showAddNoteModal = ref(false);
+                
+                // Data
+                const expenses = ref([]);
+                const notes = ref([]);
+                const newExpense = ref({ amount: '', description: '', currency: 'JPY', method: 'Cash', category: '食' });
+                const newNote = ref({ title: '', content: '', tag: 'Info' });
+                
+                // LocalStorage Helper
+                const saveData = () => {
+                    localStorage.setItem('japan_data_v1', JSON.stringify({
+                        expenses: expenses.value,
+                        notes: notes.value
+                    }));
+                };
+
+                const checkSetup = () => {
+                    const settingsSaved = localStorage.getItem('japan_settings_v1');
+                    const dataSaved = localStorage.getItem('japan_data_v1');
+                    
+                    if (settingsSaved) {
+                        appSettings.value = JSON.parse(settingsSaved);
+                    }
+                    if (dataSaved) {
+                        const parsed = JSON.parse(dataSaved);
+                        expenses.value = parsed.expenses || [];
+                        notes.value = parsed.notes || [];
+                    }
+                };
+
+                const resetApp = () => {
+                    if(confirm('重置 App 設定以開啟新旅程？(注意：如果選擇清除舊資料將無法復原)')) {
+                        localStorage.removeItem('japan_settings_v1');
+                        // We don't remove data here automatically, user decides in setup
+                        location.reload();
+                    }
+                };
+
+                const runSetup = async () => {
+                    if(!setupForm.value.startDate || !setupForm.value.endDate) { setupError.value = "Please select dates"; return; }
+                    setupLoading.value = true;
+                    try {
+                        let loc = { name: setupForm.value.destination }; 
+                        
+                        // Get Rate (JPY to TWD) - Try online first
+                        let rate = 0.22; 
+                        try {
+                            const rateRes = await fetch(`https://api.exchangerate-api.com/v4/latest/JPY`);
+                            const rateData = await rateRes.json();
+                            rate = rateData.rates.TWD;
+                        } catch {}
+
+                        if(setupForm.value.clearData) {
+                            localStorage.removeItem('japan_data_v1');
+                            expenses.value = [];
+                            notes.value = [];
+                        }
+
+                        const settings = { 
+                            destination: loc.name, 
+                            currency: 'JPY', 
+                            rate, 
+                            startDate: setupForm.value.startDate, 
+                            endDate: setupForm.value.endDate, 
+                            lang: '日本語' 
+                        };
+                        localStorage.setItem('japan_settings_v1', JSON.stringify(settings));
+                        appSettings.value = settings;
+                        
+                    } catch(e) { setupError.value = e.message; } 
+                    finally { setupLoading.value = false; }
+                };
+
+                // Expenses
+                const addExpense = () => {
+                    if(!newExpense.value.amount) return;
+                    expenses.value.unshift({
+                        id: Date.now(),
+                        amount: newExpense.value.amount,
+                        description: newExpense.value.description,
+                        currency: 'JPY',
+                        method: newExpense.value.method,
+                        category: newExpense.value.category,
+                        date: new Date().toLocaleDateString('zh-TW', {month:'numeric', day:'numeric'})
+                    });
+                    newExpense.value = { amount: '', description: '', currency: 'JPY', method: 'Cash', category: '食' };
+                    saveData();
+                };
+                const deleteExpense = (id) => {
+                    expenses.value = expenses.value.filter(e => e.id !== id);
+                    saveData();
+                };
+
+                // Notes
+                const addNote = () => {
+                    if(!newNote.value.title) return;
+                    notes.value.unshift({
+                        id: Date.now(),
+                        title: newNote.value.title,
+                        content: newNote.value.content,
+                        tag: newNote.value.tag
+                    });
+                    showAddNoteModal.value = false; 
+                    newNote.value = { title: '', content: '', tag: 'Info' };
+                    saveData();
+                };
+                const deleteNote = (id) => {
+                    notes.value = notes.value.filter(n => n.id !== id);
+                    saveData();
+                };
+                const addDefaultNotes = () => {
+                     const defaults = [
+                        { id: Date.now()+1, title: 'Tax Free (免稅)', content: '消費滿 ¥5000 (未稅) 即可退稅 10%。\n護照務必隨身攜帶，消耗品與一般物品規定不同。', tag: 'Info' },
+                        { id: Date.now()+2, title: '電車禮儀', content: '車廂內請勿通話，手機請設為靜音。\n優先席附近請關閉手機電源。', tag: 'Info' },
+                        { id: Date.now()+3, title: '垃圾分類', content: '日本街頭垃圾桶很少。\n建議隨身攜帶塑膠袋，帶回飯店或車站丟棄。', tag: 'Info' }
+                     ];
+                     notes.value = [...defaults, ...notes.value];
+                     saveData();
+                };
+
+                // Computed
+                const totalJPY = computed(() => expenses.value.reduce((s, e) => s + parseFloat(e.amount), 0));
+                const totalTWD = computed(() => Math.round(totalJPY.value * (appSettings.value?.rate || 0.22)));
+                const cashSpent = computed(() => expenses.value.filter(e => e.method === 'Cash').reduce((s, e) => s + parseFloat(e.amount), 0));
+                const cardSpent = computed(() => expenses.value.filter(e => e.method === 'Card').reduce((s, e) => s + parseFloat(e.amount), 0));
+                const suicaSpent = computed(() => expenses.value.filter(e => e.method === 'Suica').reduce((s, e) => s + parseFloat(e.amount), 0));
+                
+                const chartData = computed(() => {
+                    const data = expenses.value.reduce((acc, curr) => { acc[curr.category] = (acc[curr.category] || 0) + parseFloat(curr.amount); return acc; }, {});
+                    return Object.entries(data).sort(([,a], [,b]) => b - a).map(([name, value]) => ({ name, value, percent: totalJPY.value ? (value / totalJPY.value) * 100 : 0 }));
+                });
+
+                // Helpers
+                const formatMoney = (v) => new Intl.NumberFormat('en-US').format(v);
+
+                onMounted(() => {
+                    checkSetup();
+                });
+
+                return {
+                    online, appSettings, setupForm, setupLoading, setupError, runSetup, resetApp,
+                    activeTab, showAddNoteModal,
+                    expenses, newExpense, addExpense, deleteExpense,
+                    notes, newNote, addNote, deleteNote, addDefaultNotes,
+                    totalJPY, totalTWD, cashSpent, cardSpent, suicaSpent, chartData,
+                    formatMoney
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
