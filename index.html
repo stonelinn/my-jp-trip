@@ -179,22 +179,29 @@
                     <!-- Add Expense Form -->
                     <form @submit.prevent="addExpense" class="bg-white p-4 border border-muji-border mb-6">
                         <div class="grid grid-cols-3 gap-3 mb-3">
-                            <div class="col-span-2 flex items-center bg-muji-base border-b border-muji-gray/30">
-                                <!-- 幣別選擇器 -->
-                                <select v-model="newExpense.currency" class="bg-transparent p-2 text-xs text-muji-text outline-none font-bold w-16">
-                                    <option :value="appSettings.currency">{{ appSettings.currency }}</option>
-                                    <option value="TWD">TWD</option>
-                                    <option value="USD">USD</option>
-                                </select>
-                                <input type="number" v-model="newExpense.amount" placeholder="0" class="flex-1 bg-transparent p-2 text-muji-text outline-none font-mono text-lg text-right focus:border-muji-accent">
+                            <!-- Amount & Currency Field -->
+                            <div class="col-span-2">
+                                <label class="block text-[10px] text-muji-gray mb-1 uppercase">Amount</label>
+                                <div class="flex items-center bg-muji-base border-b border-muji-gray/30 focus-within:border-muji-accent transition-colors h-12">
+                                    <select v-model="newExpense.currency" class="bg-transparent h-full pl-2 pr-1 text-xs text-muji-text outline-none font-bold">
+                                        <option :value="appSettings.currency">{{ appSettings.currency }}</option>
+                                        <option value="TWD">TWD</option>
+                                        <option value="USD">USD</option>
+                                    </select>
+                                    <div class="w-px h-4 bg-muji-gray/30 mx-1"></div>
+                                    <input type="number" inputmode="decimal" step="0.01" v-model="newExpense.amount" placeholder="0" class="flex-1 bg-transparent h-full p-2 text-muji-text outline-none font-mono text-lg text-right placeholder-muji-gray/50">
+                                </div>
                             </div>
+                            <!-- Method Field -->
                             <div>
-                                <!-- 支付方式 (無標籤設計) -->
-                                <select v-model="newExpense.method" class="w-full h-full bg-muji-base border-b border-muji-gray/30 p-2.5 text-xs text-muji-text outline-none">
-                                    <option value="Cash">現金</option>
-                                    <option value="Card">信用卡</option>
-                                    <option value="Suica">交通卡</option>
-                                </select>
+                                <label class="block text-[10px] text-muji-gray mb-1 uppercase">Method</label>
+                                <div class="bg-muji-base border-b border-muji-gray/30 focus-within:border-muji-accent transition-colors h-12">
+                                    <select v-model="newExpense.method" class="w-full h-full bg-transparent p-2 text-xs text-muji-text outline-none">
+                                        <option value="Cash">Cash</option>
+                                        <option value="Card">Card</option>
+                                        <option value="Suica">IC Card</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
                         <div class="grid grid-cols-3 gap-3 mb-3">
